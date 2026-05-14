@@ -73,12 +73,13 @@ class InterfaceManager : public InputInterface {
       int zmq_port,
       const std::string& zmq_topic,
       bool zmq_conflate,
-      bool zmq_verbose
+      bool zmq_verbose,
+      ManagedType default_interface = ManagedType::KEYBOARD
     ) : InputInterface(), zmq_host_(zmq_host), zmq_port_(zmq_port), zmq_topic_(zmq_topic),
         zmq_conflate_(zmq_conflate), zmq_verbose_(zmq_verbose) {
       type_ = InputType::UNKNOWN;
       buildInterfaces();
-      setActiveIndex(0); // default to keyboard (index 0)
+      SetActiveInterface(default_interface);
     }
 
     void update() override {

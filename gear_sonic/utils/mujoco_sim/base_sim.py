@@ -5,6 +5,7 @@ commands, steps physics, and publishes observations back via the SDK bridge.
 BaseSimulator wraps DefaultEnv with rate-limiting and viewer/image update loops.
 """
 
+import json
 import os
 import pathlib
 from pathlib import Path
@@ -18,6 +19,7 @@ import xml.etree.ElementTree as ET
 import mujoco
 import mujoco.viewer
 import numpy as np
+import rclpy
 from scipy.spatial.transform import Rotation
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
@@ -25,6 +27,8 @@ from gear_sonic.utils.mujoco_sim.metric_utils import check_contact, check_height
 from gear_sonic.utils.mujoco_sim.sim_utils import get_subtree_body_names
 from gear_sonic.utils.mujoco_sim.unitree_sdk2py_bridge import ElasticBand, UnitreeSdk2Bridge
 from gear_sonic.utils.mujoco_sim.robot import Robot
+
+from gear_sonic.utils.mujoco_sim.object_pose_publisher import ObjectPosePublisher
 
 GEAR_SONIC_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
@@ -148,6 +152,7 @@ class DefaultEnv:
         self.torso_index = mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, "torso_link")
         self.root_body = "pelvis"
         self.root_body_id = self.mj_model.body(self.root_body).id
+        self._load_randomization_spec(xml_path)
 
         self.joint_class_map = self._get_dof_indices_by_class()
 
@@ -518,6 +523,110 @@ class DefaultEnv:
 
     def reset(self):
         mujoco.mj_resetData(self.mj_model, self.mj_data)
+        self._randomize_robot_pose()
+        self._randomize_object_pose()
+
+    # Default spawn-pose jitter — used when scene_config.py did not write a
+    # sidecar JSON next to the generated XML. Mirrors the original hard-coded
+    # behavior so existing scenes keep working unchanged.
+    _DEFAULT_RANDOMIZATION = {
+        "robot": {
+            "x":       [-0.05, 0.05],
+            "y":       [-0.05, 0.05],
+            "yaw_deg": [0.0, 0.0],
+        },
+        "objects": {
+            "x":       [-0.05, 0.05],
+            "y":       [-0.05, 0.05],
+            "yaw_deg": [-180.0, 180.0],
+        },
+    }
+
+    def _load_randomization_spec(self, xml_path):
+        """Read the per-scene randomization sidecar JSON written by
+        scripts/main/scene_config.py:write_scene_xml().
+
+        Sidecar path is the XML path with `.xml` swapped for `_random.json`.
+        Falls back to the legacy global defaults when the sidecar is missing,
+        so scenes that have not been regenerated still randomize the same as
+        before.
+        """
+        stem, _ = os.path.splitext(xml_path)
+        sidecar = stem + "_random.json"
+        if os.path.exists(sidecar):
+            try:
+                with open(sidecar, "r") as f:
+                    self._random_spec = json.load(f)
+                print(f"[base_sim] Loaded randomization spec from {sidecar}")
+                return
+            except Exception as e:
+                print(f"[base_sim] Failed to read {sidecar}: {e}; using defaults")
+        self._random_spec = dict(self._DEFAULT_RANDOMIZATION)
+
+    @staticmethod
+    def _uniform(range_pair):
+        lo, hi = float(range_pair[0]), float(range_pair[1])
+        if lo == hi:
+            return lo
+        return float(np.random.uniform(lo, hi))
+
+    def _randomize_robot_pose(self):
+        """Randomize the robot spawn xy after reset. Yaw is always 0.
+
+        Spawn yaw is pinned because the deploy resets planner_facing_angle_
+        to 0 on CONTROL_GOAL_TIMEOUT, so a yawed spawn would snap back to
+        world +X. Yaw diversity for recording is applied post-spawn via a
+        vyaw burst in the recording client (auto_recorder.py), which uses
+        the per-scene `randomization.robot.yaw_deg` range as its source.
+        """
+        if not self.use_floating_root_link:
+            return
+        spec = self._random_spec.get("robot") or self._DEFAULT_RANDOMIZATION["robot"]
+        self.mj_data.qpos[0] += self._uniform(spec.get("x", [0.0, 0.0]))
+        self.mj_data.qpos[1] += self._uniform(spec.get("y", [0.0, 0.0]))
+
+        mujoco.mj_forward(self.mj_model, self.mj_data)
+
+    def _randomize_object_pose(self):
+        """Randomize xy and yaw of every manipulable (freejoint) body after reset.
+
+        Per-object overrides come from the sidecar JSON (`objects[name]`):
+            None  → pin the object (no jitter)
+            dict  → use those ranges instead of the scene default.
+        The robot's floating root is excluded via the robot-subtree check.
+        """
+        robot_subtree = set(
+            get_subtree_body_names(self.mj_model, self.mj_model.body(self.root_body).id)
+        )
+        per_obj = self._random_spec.get("objects") or {}
+        scene_default_obj = self._DEFAULT_RANDOMIZATION["objects"]
+
+        for jid in range(self.mj_model.njnt):
+            if self.mj_model.jnt_type[jid] != mujoco.mjtJoint.mjJNT_FREE:
+                continue
+            body_id = self.mj_model.jnt_bodyid[jid]
+            name = mujoco.mj_id2name(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, body_id)
+            if name in robot_subtree:
+                continue
+
+            spec = per_obj.get(name, scene_default_obj)
+            if spec is None:
+                continue  # explicitly pinned
+
+            qpos_adr = self.mj_model.jnt_qposadr[jid]
+            self.mj_data.qpos[qpos_adr + 0] += self._uniform(spec.get("x", [0.0, 0.0]))
+            self.mj_data.qpos[qpos_adr + 1] += self._uniform(spec.get("y", [0.0, 0.0]))
+
+            yaw_deg = self._uniform(spec.get("yaw_deg", [0.0, 0.0]))
+            if yaw_deg != 0.0:
+                yaw = np.deg2rad(yaw_deg)
+                yaw_quat = np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])
+                base_quat = self.mj_data.qpos[qpos_adr + 3 : qpos_adr + 7].copy()
+                new_quat = np.zeros(4)
+                mujoco.mju_mulQuat(new_quat, yaw_quat, base_quat)
+                self.mj_data.qpos[qpos_adr + 3 : qpos_adr + 7] = new_quat
+
+        mujoco.mj_forward(self.mj_model, self.mj_data)
 
 
 class BaseSimulator:
@@ -579,7 +688,31 @@ class BaseSimulator:
         pass
 
     def init_publisher(self):
-        pass
+        """Publish one pose topic per non-robot body (statics + manipulables).
+
+        Topic format: /simulation/pose/{body_name}. The first publisher owns
+        the /simulation/reset service.
+        """
+        mj_model = self.sim_env.mj_model
+        mj_data = self.sim_env.mj_data
+        root_body_id = mj_model.body(self.sim_env.root_body).id
+        robot_subtree = set(get_subtree_body_names(mj_model, root_body_id))
+
+        self.entity_publishers = []
+        enable_reset = True
+        for bid in range(1, mj_model.nbody):  # skip world (id=0)
+            name = mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_BODY, bid)
+            if not name or name in robot_subtree:
+                continue
+            pub = ObjectPosePublisher(
+                mj_model, mj_data,
+                object_name=name,
+                topic_name=f"/simulation/pose/{name}",
+                enable_reset_service=enable_reset,
+            )
+            enable_reset = False
+            self.entity_publishers.append(pub)
+            print(f"[MuJoCo] Publishing pose of '{name}' on /simulation/pose/{name}")
 
     def init_unitree_bridge(self):
         self.unitree_bridge = UnitreeSdk2Bridge(self.config)
@@ -610,6 +743,15 @@ class BaseSimulator:
 
                 if sim_cnt % int(self.viewer_dt / self.sim_dt) == 0:
                     self.sim_env.update_viewer()
+
+                    if hasattr(self, "entity_publishers"):
+                        for pub in self.entity_publishers:
+                            rclpy.spin_once(pub, timeout_sec=0)
+                            if pub._reset_requested:
+                                pub._reset_requested = False
+                                self.sim_env.reset()
+                                print("[MuJoCo] Reset triggered via /simulation/reset")
+                            pub.publish()
 
                 if sim_cnt % int(self.reward_dt / self.sim_dt) == 0:
                     self.sim_env.update_reward()

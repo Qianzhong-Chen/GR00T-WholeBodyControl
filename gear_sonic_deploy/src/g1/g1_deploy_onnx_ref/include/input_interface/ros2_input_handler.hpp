@@ -29,8 +29,8 @@
  *
  *   base_height_command | Mode
  *   --------------------|------
- *   0.72 – 0.88         | WALK (or SLOW_WALK depending on locomotion_mode flag)
- *   0.50 – 0.72         | SQUAT (static)
+ *   0.75 – 0.88         | WALK (or SLOW_WALK depending on locomotion_mode flag)
+ *   0.50 – 0.75         | SQUAT (static)
  *   0.10 – 0.50         | KNEEL (static)
  *
  * ## Edge-Triggered Commands
@@ -501,7 +501,7 @@ public:
             if constexpr (DEBUG_LOGGING) {
                 static int goal_debug_counter = 0;
                 goal_debug_counter++;
-                if (goal_debug_counter % 50 == 0) {  // Log every 50 calls to avoid spam
+                if (goal_debug_counter % 1000 == 0) {  // Log every 50 calls to avoid spam
                     std::cout << "[ROS2 DEBUG] Control goal update:" << std::endl;
                     std::cout << "  Navigate cmd: [" << navigate_cmd_from_teleop_[0] << ", " 
                               << navigate_cmd_from_teleop_[1] << ", " << navigate_cmd_from_teleop_[2] << "]" << std::endl;
@@ -580,6 +580,11 @@ public:
             {
                 std::lock_guard<std::mutex> lock(current_motion_mutex);
                 operator_state.play = false;
+            }
+            // Auto-start control when switching to ROS2 mode
+            if (has_planner && !operator_state.start) {
+                operator_state.start = true;
+                std::cout << "[ROS2] Auto-started control (operator_state.start = true)" << std::endl;
             }
             if (has_planner && operator_state.start) {
                 control_is_active_ = true;
@@ -747,16 +752,16 @@ public:
                 double planner_moving_direction = planner_facing_angle_;
                 
                 // Determine locomotion mode based on base_height_command first
-                if (base_height >= 0.72f) {
-                    // Height 0.72-0.88: Normal walking modes
+                if (base_height >= 0.75f) {
+                    // Height 0.75-0.88: Normal walking modes
                     if (movement_mag > 0.01f) {
                         // Moving: use walk modes
                         // Compute moving direction (same as gamepad logic)
                         planner_moving_direction = std::atan2(lin_vel_y, lin_vel_x) + planner_moving_direction;
                         
                         // Bin the moving direction to 8 evenly spaced directions and get corresponding speed
-                        auto [binned_angle, direction_speed] = bin_angle_to_8_directions(planner_moving_direction);
-                        planner_moving_direction = binned_angle;
+                        // auto [binned_angle, direction_speed] = bin_angle_to_8_directions(planner_moving_direction);
+                        // planner_moving_direction = binned_angle;
                         
                         // Compute normalized movement direction from binned angle
                         final_movement[0] = std::cos(planner_moving_direction);
@@ -770,7 +775,8 @@ public:
                         } else {
                             // Slow walk mode: speed varies by direction (faster forward/lateral, slower backward)
                             final_mode = static_cast<int>(LocomotionMode::SLOW_WALK);
-                            final_speed = direction_speed;
+                            // final_speed = direction_speed;
+                            final_speed = movement_mag;
                         }
                     } else {
                         // No movement: idle
@@ -781,7 +787,7 @@ public:
                     final_height = -1.0f;  // Use default height for walking
                     
                 } else if (base_height >= 0.5f) {
-                    // Height 0.5-0.72: Squat mode (static pose, no movement)
+                    // Height 0.5-0.75: Squat mode (static pose, no movement)
                     final_mode = static_cast<int>(LocomotionMode::IDEL_SQUAT);
                     final_movement = {0.0f, 0.0f, 0.0f};
                     final_speed = -1.0f;  // Use default speed (no walking while squatting)
@@ -789,7 +795,7 @@ public:
                     
                 } else {
                     // Height 0.1-0.5: Kneel mode (static pose, no movement)
-                    final_mode = static_cast<int>(LocomotionMode::IDEL_KNEEL);
+                    final_mode = static_cast<int>(LocomotionMode::IDEL_KNEEL_TWO_LEGS);
                     final_movement = {0.0f, 0.0f, 0.0f};
                     final_speed = -1.0f;  // Use default speed (no walking while kneeling)
                     final_height = base_height;  // Pass actual height command

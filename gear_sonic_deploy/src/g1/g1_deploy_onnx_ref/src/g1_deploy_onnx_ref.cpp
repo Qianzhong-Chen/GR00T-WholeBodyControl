@@ -2314,7 +2314,8 @@ class G1Deploy {
       }
       else if (input_type == "manager") {
         input_interface_ = std::make_unique<InterfaceManager>(
-          zmq_host, zmq_port, zmq_topic, zmq_conflate, zmq_verbose
+          zmq_host, zmq_port, zmq_topic, zmq_conflate, zmq_verbose,
+          InterfaceManager::ManagedType::ROS2
         );
         std::cout << "Initialized interface manager (Shift+1/2/3/4 [! @ # $] to switch: keyboard, gamepad, zmq"
 #if HAS_ROS2
@@ -3598,43 +3599,43 @@ class G1Deploy {
             return;
           }
 
-          if (logging_counter_ % 50 == 0) {
-            auto control_loop_end_time = std::chrono::steady_clock::now();
-            auto obs_duration = std::chrono::duration_cast<std::chrono::microseconds>(obs_end_time - obs_start_time);
-            auto policy_duration = std::chrono::duration_cast<std::chrono::microseconds>(motor_command_end_time - obs_end_time);
-            auto motor_command_duration = std::chrono::duration_cast<std::chrono::microseconds>(motor_command_end_time - obs_start_time);
-            auto post_hand_joint_duration = std::chrono::duration_cast<std::chrono::microseconds>(control_loop_end_time - hand_joint_end_time);
+          // if (logging_counter_ % 50 == 0) {
+          //   auto control_loop_end_time = std::chrono::steady_clock::now();
+          //   auto obs_duration = std::chrono::duration_cast<std::chrono::microseconds>(obs_end_time - obs_start_time);
+          //   auto policy_duration = std::chrono::duration_cast<std::chrono::microseconds>(motor_command_end_time - obs_end_time);
+          //   auto motor_command_duration = std::chrono::duration_cast<std::chrono::microseconds>(motor_command_end_time - obs_start_time);
+          //   auto post_hand_joint_duration = std::chrono::duration_cast<std::chrono::microseconds>(control_loop_end_time - hand_joint_end_time);
             
-            std::cout << "Loop timing - LowState age: " << used_low_state_data_.GetAgeMs() << "ms"
-                      << ", Streaming data mean delay: " << streaming_data_delay_rolling_stats_.mean() << "ms"
-                      << ", Streaming data std delay: " << streaming_data_delay_rolling_stats_.stddev() << "ms"
-                      << ", IMU age: " << used_imu_torso_data_.GetAgeMs() << "ms"
-                      << ", Obs: " << obs_duration.count() << "us"
-                      << ", Policy: " << policy_duration.count() << "us"
-                      << ", Obs 2 Motor Command: " << motor_command_duration.count() << "us"
-                      << ", Post processing: " << post_hand_joint_duration.count() << "us";
+          //   std::cout << "Loop timing - LowState age: " << used_low_state_data_.GetAgeMs() << "ms"
+          //             << ", Streaming data mean delay: " << streaming_data_delay_rolling_stats_.mean() << "ms"
+          //             << ", Streaming data std delay: " << streaming_data_delay_rolling_stats_.stddev() << "ms"
+          //             << ", IMU age: " << used_imu_torso_data_.GetAgeMs() << "ms"
+          //             << ", Obs: " << obs_duration.count() << "us"
+          //             << ", Policy: " << policy_duration.count() << "us"
+          //             << ", Obs 2 Motor Command: " << motor_command_duration.count() << "us"
+          //             << ", Post processing: " << post_hand_joint_duration.count() << "us";
             
-            // Add planner timing if planner is enabled and initialized
-            if (planner_ && planner_->planner_state_.enabled && planner_->planner_state_.initialized) {
-              std::cout << ", Planner - Gather Input: " << planner_->last_timing_.gather_input_duration.count() << "us"
-                        << ", Model: " << planner_->last_timing_.model_duration.count() << "us"
-                        << ", Convert50Hz: " << planner_->last_timing_.extract_duration.count() << "us"
-                        << ", Total: " << planner_->last_timing_.total_duration.count() << "us";
-            }
+          //   // Add planner timing if planner is enabled and initialized
+          //   if (planner_ && planner_->planner_state_.enabled && planner_->planner_state_.initialized) {
+          //     std::cout << ", Planner - Gather Input: " << planner_->last_timing_.gather_input_duration.count() << "us"
+          //               << ", Model: " << planner_->last_timing_.model_duration.count() << "us"
+          //               << ", Convert50Hz: " << planner_->last_timing_.extract_duration.count() << "us"
+          //               << ", Total: " << planner_->last_timing_.total_duration.count() << "us";
+          //   }
             
-            // Only print compliance levels if the policy observes them
-            if (has_vr_3point_compliance_obs_) {
-              std::cout << " | Compliance [L,R,H]: [" 
-                        << vr_3point_compliance_buffer_[0] << ", "
-                        << vr_3point_compliance_buffer_[1] << ", "
-                        << vr_3point_compliance_buffer_[2] << "]";
-            }
+          //   // Only print compliance levels if the policy observes them
+          //   if (has_vr_3point_compliance_obs_) {
+          //     std::cout << " | Compliance [L,R,H]: [" 
+          //               << vr_3point_compliance_buffer_[0] << ", "
+          //               << vr_3point_compliance_buffer_[1] << ", "
+          //               << vr_3point_compliance_buffer_[2] << "]";
+          //   }
             
-            // Print hand max close ratio (keyboard-controlled via X/C keys)
-            std::cout << " | HandCloseRatio: " << dex3_hands_.GetMaxCloseRatio();
+          //   // Print hand max close ratio (keyboard-controlled via X/C keys)
+          //   std::cout << " | HandCloseRatio: " << dex3_hands_.GetMaxCloseRatio();
             
-            std::cout << std::endl;
-          }
+          //   std::cout << std::endl;
+          // }
           break;
         }
       }

@@ -386,6 +386,8 @@ if [[ "$ENV_TYPE" == "sim" ]]; then
     echo -e "${YELLOW}📋 Simulation mode: CRC check will be disabled${NC}"
     echo ""
 fi
+# Pass-through extras (e.g. EXTRA_DEPLOY_ARGS="--enable-csv-logs --logs-dir collect_logs")
+[[ -n "$EXTRA_DEPLOY_ARGS" ]] && EXTRA_ARGS="$EXTRA_ARGS $EXTRA_DEPLOY_ARGS"
 
 # ============================================================================
 # Step 1: Check Prerequisites
@@ -491,7 +493,7 @@ set -e  # Re-enable exit on error
 
 # Always build to ensure we have the latest version
 echo "Building the project..."
-just build
+# just build
 
 echo ""
 

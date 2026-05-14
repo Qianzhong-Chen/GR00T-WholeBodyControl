@@ -66,7 +66,7 @@ IS_JETSON=false
 JETSON_MODEL=""
 DOCKERFILE="Dockerfile.ros2"  # Unified Dockerfile for all platforms
 IMAGE_NAME="g1-deploy-dev"
-CUDA_VERSION="12.4.1"  # Default for x86_64/ARM64
+CUDA_VERSION="12.2.2"  # Default for x86_64/ARM64
 
 # Enhanced Jetson detection
 if [[ "$(uname -m)" == "aarch64" ]]; then
@@ -80,7 +80,7 @@ if [[ "$(uname -m)" == "aarch64" ]]; then
         # Use closest available CUDA version to Jetson's CUDA
         # Note: Jetson has CUDA 12.6, but Docker images only go up to 12.4.1
         # This is OK - newer driver (12.6) can run older CUDA (12.4.1)
-        CUDA_VERSION="12.4.1"  # Closest available to Jetson's 12.6
+        CUDA_VERSION="12.2.2"  # Closest available to Jetson's 12.6
         
         # Detect Jetson model
         if [[ -f "/proc/device-tree/model" ]]; then
@@ -362,6 +362,8 @@ fi
 docker run -it --rm \
     --name "$IMAGE_NAME" \
     --network host \
+    --ipc host \
+    --pid host \
     $GPU_SETTINGS \
     -v "$(cd .. && pwd):/workspace/g1_deploy:rw" \
     $TENSORRT_MOUNT \

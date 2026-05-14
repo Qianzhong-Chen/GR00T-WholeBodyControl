@@ -13,7 +13,7 @@
 #
 # Note: Official nvidia/cuda images are already multi-arch (x86_64 + arm64)
 #
-ARG CUDA_VERSION=12.4.1
+ARG CUDA_VERSION=12.2.2
 ARG CUDA_BASE_IMAGE=nvidia/cuda
 FROM ${CUDA_BASE_IMAGE}:${CUDA_VERSION}-devel-ubuntu22.04
 
