@@ -4,4 +4,6 @@
 build/
 target/
 logs/
+collect_logs/
+core
 *.trt
