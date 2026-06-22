@@ -392,6 +392,19 @@ class DefaultEnv:
         if self.unitree_bridge.joystick:
             self.unitree_bridge.PublishWirelessController()
         if self.elastic_band:
+            # Headless auto-release: a display build lets the operator press key 9
+            # to drop the suspension spring AFTER the policy has settled and is
+            # balancing. Headless has no viewer, so emulate that timing: hold the
+            # band for BAND_HOLD_SEC of policy commands (let the WBC policy ramp up
+            # and stabilize), then release once. Releasing immediately on the first
+            # command drops the robot before the policy can catch it.
+            import time as _t
+            if getattr(self.unitree_bridge, "low_cmd_received", False):
+                if not hasattr(self, "_band_cmd_t0"):
+                    self._band_cmd_t0 = _t.time()
+                elif self.elastic_band.enable and (_t.time() - self._band_cmd_t0) >= 8.0:
+                    print("[ElasticBand] policy settled — auto-releasing band (headless)")
+                    self.elastic_band.enable = False
             if self.elastic_band.enable and self.use_floating_root_link:
                 pose = np.concatenate(
                     [
