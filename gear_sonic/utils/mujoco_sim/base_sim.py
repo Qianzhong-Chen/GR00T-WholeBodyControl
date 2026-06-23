@@ -537,7 +537,38 @@ class DefaultEnv:
     def reset(self):
         mujoco.mj_resetData(self.mj_model, self.mj_data)
         self._randomize_robot_pose()
+        # Table-height jitter must run BEFORE object randomization so the dz it
+        # records is available to shift resting objects onto the new surface.
+        self._randomize_table_height()
         self._randomize_object_pose()
+
+    def _randomize_table_height(self):
+        """Jitter the z of any static body that declared a `table_z_range` in
+        the sidecar (key `statics`), and remember the dz so resting objects can
+        be shifted onto the new surface by _randomize_object_pose.
+
+        body_pos is model-level and persists across resets, so we re-base from
+        the ORIGINAL baked z (captured once) each reset rather than accumulate.
+        """
+        self._table_dz = {}  # object_name -> dz to apply this reset
+        statics = (self._random_spec or {}).get("statics") or {}
+        if not statics:
+            return
+        if not hasattr(self, "_table_base_z"):
+            self._table_base_z = {}  # body_name -> original baked body_pos[z]
+        for name, spec in statics.items():
+            try:
+                bid = self.mj_model.body(name).id
+            except Exception:
+                print(f"[base_sim] table_z: body '{name}' not found, skipping")
+                continue
+            if name not in self._table_base_z:
+                self._table_base_z[name] = float(self.mj_model.body_pos[bid][2])
+            dz = self._uniform(spec.get("z", [0.0, 0.0]))
+            self.mj_model.body_pos[bid][2] = self._table_base_z[name] + dz
+            for obj_name in spec.get("resting_objects", []):
+                self._table_dz[obj_name] = dz
+        mujoco.mj_forward(self.mj_model, self.mj_data)
 
     # Default spawn-pose jitter — used when scene_config.py did not write a
     # sidecar JSON next to the generated XML. Mirrors the original hard-coded
@@ -622,11 +653,19 @@ class DefaultEnv:
             if name in robot_subtree:
                 continue
 
+            qpos_adr = self.mj_model.jnt_qposadr[jid]
+
+            # Table-height follow: if this object rests on a height-jittered
+            # static, shift its spawn z by the same dz so it stays on the
+            # surface. Applies even when the object is otherwise pinned.
+            table_dz = getattr(self, "_table_dz", {}).get(name, 0.0)
+            if table_dz:
+                self.mj_data.qpos[qpos_adr + 2] += table_dz
+
             spec = per_obj.get(name, scene_default_obj)
             if spec is None:
-                continue  # explicitly pinned
+                continue  # explicitly pinned (xy/yaw); z-follow above still applied
 
-            qpos_adr = self.mj_model.jnt_qposadr[jid]
             self.mj_data.qpos[qpos_adr + 0] += self._uniform(spec.get("x", [0.0, 0.0]))
             self.mj_data.qpos[qpos_adr + 1] += self._uniform(spec.get("y", [0.0, 0.0]))
 
