@@ -566,8 +566,22 @@ class DefaultEnv:
                 self._table_base_z[name] = float(self.mj_model.body_pos[bid][2])
             dz = self._uniform(spec.get("z", [0.0, 0.0]))
             self.mj_model.body_pos[bid][2] = self._table_base_z[name] + dz
+            # Freejoint objects resting on this surface: shift their spawn qpos z
+            # (applied in _randomize_object_pose via self._table_dz).
             for obj_name in spec.get("resting_objects", []):
                 self._table_dz[obj_name] = dz
+            # Static props resting on this surface (e.g. a place_marker): they are
+            # body_pos-driven like the table, so shift their body_pos z directly,
+            # re-basing from the original baked z each reset.
+            for st_name in spec.get("resting_statics", []):
+                try:
+                    sbid = self.mj_model.body(st_name).id
+                except Exception:
+                    print(f"[base_sim] table_z: resting static '{st_name}' not found, skipping")
+                    continue
+                if st_name not in self._table_base_z:
+                    self._table_base_z[st_name] = float(self.mj_model.body_pos[sbid][2])
+                self.mj_model.body_pos[sbid][2] = self._table_base_z[st_name] + dz
         mujoco.mj_forward(self.mj_model, self.mj_data)
 
     # Default spawn-pose jitter — used when scene_config.py did not write a
