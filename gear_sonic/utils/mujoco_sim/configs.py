@@ -326,6 +326,21 @@ class BaseConfig(ArgsConfigTemplate):
 
         wbc_config = override_wbc_config(wbc_config, self)
 
+        # direct_manip (SONIC-free) override: point the sim at a different scene
+        # XML without editing the yaml or clobbering SONIC's generated_scene.xml.
+        scene_override = os.environ.get("GROOT_WBC_ROBOT_SCENE")
+        if scene_override:
+            wbc_config["ROBOT_SCENE"] = scene_override
+            print(f"[SimLoopConfig] ROBOT_SCENE override -> {scene_override}")
+
+        # direct_manip: run the sim on a separate DDS domain so a still-running
+        # SONIC deploy (domain 0) can't reach it and fight the direct planner's
+        # rt/lowcmd. Shell C's bridge must use the SAME domain (UNITREE_DOMAIN_ID).
+        domain_override = os.environ.get("UNITREE_DOMAIN_ID")
+        if domain_override is not None:
+            wbc_config["DOMAIN_ID"] = int(domain_override)
+            print(f"[SimLoopConfig] DOMAIN_ID override -> {domain_override}")
+
         return wbc_config
 
 

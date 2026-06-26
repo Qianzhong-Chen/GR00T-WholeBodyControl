@@ -181,7 +181,9 @@ class DefaultEnv:
                     "The absolute static root will make the simulation unstable."
                 )
 
-        # Enable the elastic band
+        # Enable the elastic band. For a constrained (fixed) base there is no
+        # floating root to suspend, so the band stays None and sim_step skips it.
+        self.elastic_band = None
         if self.config["ENABLE_ELASTIC_BAND"] and self.use_floating_root_link:
             self.elastic_band = ElasticBand()
             if "g1" in self.config["ROBOT_TYPE"]:
@@ -246,6 +248,46 @@ class DefaultEnv:
         self.body_joint_index = np.array(self.body_joint_index)
         self.left_hand_index = np.array(self.left_hand_index)
         self.right_hand_index = np.array(self.right_hand_index)
+
+        if self.use_constrained_root_link:
+            self._disable_robot_static_collision()
+
+    def _disable_robot_static_collision(self):
+        """For a constrained (fixed) base, the rigidly-mounted robot stands within
+        arm's reach of the table, so its lower body overlaps the table footprint
+        (the floating-base WBC avoids this by squatting/leaning). With the base
+        pinned we don't need leg↔table contact for stability, and direct_manip's
+        grasp is kinematic — so we disable ROBOT↔STATIC collisions via
+        contype/conaffinity bitmasks while keeping object↔table and object↔hand.
+
+        Bit scheme (collide iff (ctypeA&caffB)|(ctypeB&caffA)):
+          robot  -> 0x1/0x1, static (table/marker) -> 0x2/0x2,
+          object + floor -> 0x3/0x3 (collide with both). Only applied for the
+          constrained-base model, so the SONIC floating-base sim is untouched.
+        """
+        m = self.mj_model
+        pelvis_root = m.body(self.root_body).id
+        robot_bodies = set(get_subtree_body_names(m, pelvis_root))
+        ROBOT, STATIC, OBJ = 0x1, 0x2, 0x3
+        for g in range(m.ngeom):
+            if m.geom_contype[g] == 0 and m.geom_conaffinity[g] == 0:
+                continue  # visual-only geom
+            bid = m.geom_bodyid[g]
+            bname = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, bid)
+            jnt_is_free = any(
+                m.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE
+                for j in range(m.njnt) if m.jnt_bodyid[j] == bid
+            )
+            if bname in robot_bodies:
+                m.geom_contype[g], m.geom_conaffinity[g] = ROBOT, ROBOT
+            elif jnt_is_free or bname == "world" or m.geom_bodyid[g] == 0:
+                # freejoint manipulables + the floor geom (body 0/world).
+                m.geom_contype[g], m.geom_conaffinity[g] = OBJ, OBJ
+            else:
+                # statics (table, place_marker, lift_target): collide with object only.
+                m.geom_contype[g], m.geom_conaffinity[g] = STATIC, STATIC
+        print("[base_sim] constrained base: disabled robot↔static collision "
+              "(robot=0x1, static=0x2, object/floor=0x3)")
 
     def init_renderers(self):
         self.renderers = {}
@@ -352,7 +394,15 @@ class DefaultEnv:
             obs["floating_base_vel"] = self.mj_data.qvel[:6]
             obs["floating_base_acc"] = self.mj_data.qacc[:6]
         else:
-            obs["floating_base_pose"] = np.zeros(7)
+            # Fixed/constrained base: there is no free root in qpos, but the base
+            # still has a real WORLD pose (the pelvis body). Publish that so the
+            # client's FK + recorder get a valid base transform; a zeros(7) pose
+            # would carry a zero-norm quaternion and crash scipy on the client.
+            root_id = self.root_body_id
+            pose = np.zeros(7)
+            pose[:3] = self.mj_data.xpos[root_id]
+            pose[3:7] = self.mj_data.xquat[root_id]  # MuJoCo wxyz
+            obs["floating_base_pose"] = pose
             obs["floating_base_vel"] = np.zeros(6)
             obs["floating_base_acc"] = np.zeros(6)
 
@@ -518,7 +568,10 @@ class DefaultEnv:
 
     def check_fall(self):
         self.fall = False
-        if self.mj_data.qpos[2] < 0.2:
+        # Only meaningful for a floating base, where qpos[2] is the pelvis world
+        # height. For a constrained (fixed) base, qpos[0] is the tiny z-slide
+        # value (~0), so this check would false-fire every step — skip it.
+        if self.use_floating_root_link and self.mj_data.qpos[2] < 0.2:
             self.fall = True
             print(f"Warning: Robot has fallen, height: {self.mj_data.qpos[2]:.3f} m")
 
@@ -536,11 +589,37 @@ class DefaultEnv:
 
     def reset(self):
         mujoco.mj_resetData(self.mj_model, self.mj_data)
+        self._seed_default_pose()
         self._randomize_robot_pose()
         # Table-height jitter must run BEFORE object randomization so the dz it
         # records is available to shift resting objects onto the new surface.
         self._randomize_table_height()
         self._randomize_object_pose()
+
+    def _seed_default_pose(self):
+        """Seed the standing default joint angles after mj_resetData.
+
+        mj_resetData zeros every joint, leaving the legs straight. A floating
+        base is fine (the WBC policy poses + balances the robot from there), but
+        the constrained (fixed) base has no policy: its PD controller can't pull
+        the legs from 0 up to a squat against floor contact, so the robot looks
+        collapsed/curved. Seed DEFAULT_DOF_ANGLES so the legs START standing and
+        the direct planner only has to HOLD them. Only for the constrained base
+        so the SONIC floating-base reset is unchanged.
+        """
+        if self.use_floating_root_link:
+            return
+        default = self.config.get("DEFAULT_DOF_ANGLES")
+        if not default:
+            return
+        # body_joint_index are model joint ids in DEFAULT_DOF order (leg→waist→
+        # arm). Use jnt_qposadr directly so the mapping is exact regardless of
+        # the root joint's dof count.
+        for k, jid in enumerate(self.body_joint_index):
+            if k >= len(default):
+                break
+            self.mj_data.qpos[self.mj_model.jnt_qposadr[jid]] = float(default[k])
+        mujoco.mj_forward(self.mj_model, self.mj_data)
 
     def _randomize_table_height(self):
         """Jitter the z of any static body that declared a `table_z_range` in

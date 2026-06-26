@@ -1,0 +1,79 @@
+<!-- GENERATED from scene_config.py — do not hand-edit; changes will be overwritten. -->
+<mujoco model="g1_scene">
+  <include file="g1_29dof_with_hand.xml"/>
+
+  <statistic center="0 0 0.5" extent="2.0"/>
+  <option cone="elliptic" impratio="10" noslip_iterations="5"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-130" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0"
+             width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge"
+             rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8"
+             width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true"
+              texrepeat="5 5" reflectance="0.2"/>
+    <material name="prop_mat" rgba="0.6 0.4 0.2 1"/>
+
+    <mesh name="high_table_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="lift_target_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/orange.stl" scale="0.2 0.2 0.2"/>
+    <mesh name="bottle_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/bottle_pink.stl" scale="1.0 1.0 1.0"/>
+    <mesh name="high_table_col_0_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_0.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_1_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_1.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_10_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_10.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_11_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_11.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_12_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_12.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_13_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_13.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_2_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_2.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_3_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_3.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_4_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_4.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_5_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_5.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_6_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_6.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_7_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_7.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_8_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_8.stl" scale="1.5483 1.5483 1.5483"/>
+    <mesh name="high_table_col_9_mesh" file="/home/ANT.AMAZON.COM/qzchen/LEGS/data/objects/high_table/high_table_col_9.stl" scale="1.5483 1.5483 1.5483"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+    <site name="com_marker" pos="0.1 0 0" size="0.05" rgba="1 0 0 1" type="sphere"/>
+
+    <body name="high_table" pos="0.595 0.0 0.38" euler="0 0 -1.57">
+      <geom name="high_table_visual" type="mesh" mesh="high_table_mesh" material="prop_mat" contype="0" conaffinity="0" group="1"/>
+      <geom name="high_table_col_0" type="mesh" mesh="high_table_col_0_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_1" type="mesh" mesh="high_table_col_1_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_2" type="mesh" mesh="high_table_col_2_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_3" type="mesh" mesh="high_table_col_3_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_4" type="mesh" mesh="high_table_col_4_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_5" type="mesh" mesh="high_table_col_5_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_6" type="mesh" mesh="high_table_col_6_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_7" type="mesh" mesh="high_table_col_7_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_8" type="mesh" mesh="high_table_col_8_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_9" type="mesh" mesh="high_table_col_9_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_10" type="mesh" mesh="high_table_col_10_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_11" type="mesh" mesh="high_table_col_11_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_12" type="mesh" mesh="high_table_col_12_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+      <geom name="high_table_col_13" type="mesh" mesh="high_table_col_13_mesh" material="prop_mat" rgba="0.6 0.4 0.2 0.3" group="3"/>
+    </body>
+
+    <body name="lift_target" pos="0.4 0.1 0.86" euler="0 0 0">
+      <geom name="lift_target_visual" type="mesh" mesh="lift_target_mesh" material="prop_mat" contype="0" conaffinity="0" group="1"/>
+    </body>
+
+    <body name="bottle" pos="0.45 0.1 0.845" euler="3.14159 0 0">
+      <freejoint name="bottle_joint"/>
+      <geom name="bottle_geom" type="mesh" mesh="bottle_mesh" mass="0.5" friction="0.2 0.05 0.005" rgba="0.9 0.4 0.6 1" condim="4"/>
+    </body>
+  </worldbody>
+
+  <default>
+    <geom friction="2.0"/>
+  </default>
+</mujoco>
