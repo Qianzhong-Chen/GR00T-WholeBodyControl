@@ -17,6 +17,7 @@ class ObjectPosePublisher(Node):
         self.mj_data = mj_data
         self.object_name = object_name
         self._reset_requested = False
+        self._reset_object_requested = False
 
         # ROS 2 Publisher creation uses the Node method
         self.pub = self.create_publisher(PoseStamped, topic_name, 10)
@@ -24,6 +25,9 @@ class ObjectPosePublisher(Node):
         # Service for reset commands from external processes (only on primary publisher)
         if enable_reset_service:
             self.create_service(Trigger, '/simulation/reset', self._reset_callback)
+            # Object-only reset (re-randomize table + manipulables, robot untouched)
+            # — for the direct staged reset (reset robot → settle → reset object).
+            self.create_service(Trigger, '/simulation/reset_object', self._reset_object_callback)
 
         # Find the object's body ID in MuJoCo
         try:
@@ -36,6 +40,12 @@ class ObjectPosePublisher(Node):
         self._reset_requested = True
         response.success = True
         response.message = "Reset requested"
+        return response
+
+    def _reset_object_callback(self, request, response):
+        self._reset_object_requested = True
+        response.success = True
+        response.message = "Object reset requested"
         return response
 
     def publish(self):

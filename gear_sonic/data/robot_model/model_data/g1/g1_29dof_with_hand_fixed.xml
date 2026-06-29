@@ -87,13 +87,12 @@
   </equality>
 
   <worldbody>
-    <!-- direct_manip: pelvis placed within left-arm reach of the bottle
-         (bottle nominal x=0.45 − reach_x 0.16 = 0.29; y=0 centers the torso).
-         The fixed base can't walk/lean to the object the way SONIC does, so it
-         must already STAND in reach. base_sim disables robot↔static collision
-         for the constrained base, so the legs (which now overlap the table
-         footprint) don't fight the rigidly-held base. -->
-    <body name="pelvis" pos="0.29 0 0.793">
+    <!-- direct_manip: pelvis at x=0.13 — the bent-knee crouch (knee x≈0.164)
+         stays behind the table near edge (x≈0.20) so the legs don't poke under
+         the table, while the left arm reaches the (now near-edge) bottle grasp
+         pose at x≈0.35 (IK converges). y=0 centers the torso. The fixed base
+         can't walk/lean to the object the way SONIC does, so it stands in reach. -->
+    <body name="pelvis" pos="0.13 0 0.793">
       <inertial pos="0 0 -0.07605" quat="1 0 -0.000399148 0" mass="3.813"
         diaginertia="0.010549 0.0093089 0.0079184" />
       <!-- direct_manip fixed base: a single tightly-limited z-slide so base_sim's

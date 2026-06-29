@@ -251,6 +251,32 @@ class DefaultEnv:
 
         if self.use_constrained_root_link:
             self._disable_robot_static_collision()
+            self._setup_lower_body_freeze()
+
+    def _setup_lower_body_freeze(self):
+        """For the fixed (constrained) base, the legs + waist are cosmetic — the
+        robot is a rigidly-mounted arm manipulator. Without a balancing policy
+        they sag under gravity (and PD can't reliably recover a collapsed pose,
+        nor before Shell C connects). So we HARD-FREEZE the lower-body joints at
+        their standing defaults every sim step (qpos held, qvel zeroed), leaving
+        only the arms + hands dynamic. Builds the qpos/qvel address lists once.
+        """
+        default = self.config.get("DEFAULT_DOF_ANGLES") or []
+        # Lower body = leg + waist joints (exclude arms/wrists, which the direct
+        # planner drives). Match by name; keep DEFAULT_DOF_ANGLES order alignment.
+        self._frozen_qadr, self._frozen_vadr, self._frozen_q = [], [], []
+        lower_parts = ["hip", "knee", "ankle", "waist"]
+        for k, jid in enumerate(self.body_joint_index):
+            name = self.mj_model.joint(jid).name
+            if any(p in name for p in lower_parts) and k < len(default):
+                self._frozen_qadr.append(self.mj_model.jnt_qposadr[jid])
+                self._frozen_vadr.append(self.mj_model.jnt_dofadr[jid])
+                self._frozen_q.append(float(default[k]))
+        self._frozen_qadr = np.array(self._frozen_qadr, dtype=int)
+        self._frozen_vadr = np.array(self._frozen_vadr, dtype=int)
+        self._frozen_q = np.array(self._frozen_q, dtype=float)
+        print(f"[base_sim] constrained base: hard-freezing {len(self._frozen_q)} "
+              f"lower-body joints (legs+waist) at standing default")
 
     def _disable_robot_static_collision(self):
         """For a constrained (fixed) base, the rigidly-mounted robot stands within
@@ -420,9 +446,13 @@ class DefaultEnv:
         )
         obs["secondary_imu_vel"] = pose[7:13]
 
-        obs["body_q"] = self.mj_data.qpos[self.body_joint_index + 7 - 1]
-        obs["body_dq"] = self.mj_data.qvel[self.body_joint_index + 6 - 1]
-        obs["body_ddq"] = self.mj_data.qacc[self.body_joint_index + 6 - 1]
+        # Use qpos_offset/qvel_offset (7/6 for a floating base, 1/1 for the
+        # constrained base) instead of hardcoding the floating-base 7/6 — a fixed
+        # base has no 6-DOF free root, so the hardcoded +6 would read 6 joints too
+        # high and scramble the published body state (garbled torso + arms).
+        obs["body_q"] = self.mj_data.qpos[self.body_joint_index + self.qpos_offset - 1]
+        obs["body_dq"] = self.mj_data.qvel[self.body_joint_index + self.qvel_offset - 1]
+        obs["body_ddq"] = self.mj_data.qacc[self.body_joint_index + self.qvel_offset - 1]
         obs["body_tau_est"] = self.mj_data.actuator_force[self.body_joint_index - 1]
         if self.num_hand_dof > 0:
             obs["left_hand_q"] = self.mj_data.qpos[self.left_hand_index + self.qpos_offset - 1]
@@ -491,6 +521,13 @@ class DefaultEnv:
         else:
             self.mj_data.ctrl = self.torques
         mujoco.mj_step(self.mj_model, self.mj_data)
+
+        # Constrained base: hard-freeze the lower body at standing each step so
+        # the legs/waist can't sag under gravity (no balancing policy here).
+        if getattr(self, "_frozen_qadr", None) is not None and len(self._frozen_qadr):
+            self.mj_data.qpos[self._frozen_qadr] = self._frozen_q
+            self.mj_data.qvel[self._frozen_vadr] = 0.0
+            mujoco.mj_forward(self.mj_model, self.mj_data)
 
         self.check_fall()
 
@@ -595,6 +632,28 @@ class DefaultEnv:
         # records is available to shift resting objects onto the new surface.
         self._randomize_table_height()
         self._randomize_object_pose()
+
+    def reset_object(self):
+        """Re-randomize ONLY the table height + manipulable objects, leaving the
+        robot exactly as it is (no mj_resetData, no robot re-seed).
+
+        Used by the direct (fixed-base) staged reset: the robot/arm are reset and
+        allowed to settle to the idle pose FIRST, then the bottle is respawned so
+        it can't collide with a still-retracting arm. The manipulable freejoints
+        are re-placed from their model spawn (body_pos / qpos0) + randomization.
+        """
+        # Reset each freejoint object to its spawn qpos0 before re-randomizing,
+        # so jitter is applied from the canonical spawn, not the last grasp pose.
+        for jid in range(self.mj_model.njnt):
+            if self.mj_model.jnt_type[jid] != mujoco.mjtJoint.mjJNT_FREE:
+                continue
+            qadr = self.mj_model.jnt_qposadr[jid]
+            self.mj_data.qpos[qadr:qadr + 7] = self.mj_model.qpos0[qadr:qadr + 7]
+            vadr = self.mj_model.jnt_dofadr[jid]
+            self.mj_data.qvel[vadr:vadr + 6] = 0.0
+        self._randomize_table_height()
+        self._randomize_object_pose()
+        mujoco.mj_forward(self.mj_model, self.mj_data)
 
     def _seed_default_pose(self):
         """Seed the standing default joint angles after mj_resetData.
@@ -896,6 +955,10 @@ class BaseSimulator:
                                 pub._reset_requested = False
                                 self.sim_env.reset()
                                 print("[MuJoCo] Reset triggered via /simulation/reset")
+                            if getattr(pub, "_reset_object_requested", False):
+                                pub._reset_object_requested = False
+                                self.sim_env.reset_object()
+                                print("[MuJoCo] Object reset triggered via /simulation/reset_object")
                             pub.publish()
 
                 if sim_cnt % int(self.reward_dt / self.sim_dt) == 0:
