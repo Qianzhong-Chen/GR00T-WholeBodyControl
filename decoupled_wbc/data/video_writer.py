@@ -31,8 +31,16 @@ class VideoWriter:
         self.stream = self.container.add_stream(codec, rate=fps)
         self.stream.width = width
         self.stream.height = height
-        thread = threading.Thread(target=self._writer_worker, daemon=True)
-        thread.start()
+        # Sentinel-based shutdown. The old stop() polled queue.empty(), but the
+        # worker can have already .get() the last frame and be mid-.encode()
+        # while the queue reads empty — stop() would then flush+close the
+        # container concurrently with the worker's mux(), producing
+        # non-strictly-monotonic PTS / "invalid MB type" and wedging the
+        # encoder (seen ~2/1000 episodes). Instead we enqueue a None sentinel
+        # and join the worker so every frame is muxed before we close.
+        self._sentinel = object()
+        self._thread = threading.Thread(target=self._writer_worker, daemon=True)
+        self._thread.start()
 
     def _assert_dimensions(self, frame: np.ndarray) -> None:
         assert (
@@ -47,6 +55,8 @@ class VideoWriter:
     def _writer_worker(self) -> None:
         while True:
             frame = self.queue.get()
+            if frame is self._sentinel:
+                break  # drained: no more frames will be enqueued
             if frame is None:
                 continue
             self._assert_dimensions(frame)
@@ -82,12 +92,13 @@ class VideoWriter:
         Blocking call. Waits until all the frames in the queue have been written to the file
         and the video writer has been closed.
         """
-        if not self.queue.empty():
-            print("Waiting for video writer queue to empty...")
-            while not self.queue.empty():
-                time.sleep(0.1)
+        # Enqueue the sentinel and join the worker: guarantees every queued
+        # frame has been fully encoded + muxed (no in-flight .encode() racing
+        # the flush/close below).
+        self.queue.put(self._sentinel)
+        self._thread.join()
 
-        print("Video writer queue is empty, flushing stream...")
+        print("Video writer queue drained, flushing stream...")
         self._flush_stream()
         self.container.close()
         return self.output_path
