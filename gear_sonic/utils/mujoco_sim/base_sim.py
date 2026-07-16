@@ -631,7 +631,43 @@ class DefaultEnv:
         # Table-height jitter must run BEFORE object randomization so the dz it
         # records is available to shift resting objects onto the new surface.
         self._randomize_table_height()
-        self._randomize_object_pose()
+        # Staggered spawn: when the sidecar sets randomization.park_objects_on_full_reset
+        # (scene_config writes it for staggered_object_reset scenes), the full
+        # reset PARKS every manipulable object far off-table instead of placing
+        # it in the workspace. A later reset_object() call — fired only after the
+        # robot has settled (auto_recorder staggered path) — puts the bottle on
+        # the table. This prevents (a) the unstable SONIC-startup robot from
+        # lashing into a bottle spawned right next to it, and (b) the bottle
+        # appearing to "init twice" (once per full reset at +1.0/+2.0, then again
+        # at the object reset). Without this flag, behavior is unchanged.
+        if (self._random_spec or {}).get("park_objects_on_full_reset"):
+            self._park_objects()
+        else:
+            self._randomize_object_pose()
+
+    _PARK_POS = (10.0, 10.0, 5.0)  # far off-table dump spot for staggered spawn
+
+    def _park_objects(self):
+        """Move every manipulable (freejoint) body to a far off-table park spot
+        with zero velocity, so it's out of the robot's reach/collision volume
+        during the full-reset settle window. reset_object() later re-randomizes
+        it onto the table. Robot subtree bodies are excluded."""
+        robot_subtree = set(
+            get_subtree_body_names(self.mj_model, self.mj_model.body(self.root_body).id)
+        )
+        for jid in range(self.mj_model.njnt):
+            if self.mj_model.jnt_type[jid] != mujoco.mjtJoint.mjJNT_FREE:
+                continue
+            body_id = self.mj_model.jnt_bodyid[jid]
+            name = mujoco.mj_id2name(self.mj_model, mujoco.mjtObj.mjOBJ_BODY, body_id)
+            if name in robot_subtree:
+                continue
+            qadr = self.mj_model.jnt_qposadr[jid]
+            self.mj_data.qpos[qadr:qadr + 3] = self._PARK_POS
+            self.mj_data.qpos[qadr + 3:qadr + 7] = (1.0, 0.0, 0.0, 0.0)
+            vadr = self.mj_model.jnt_dofadr[jid]
+            self.mj_data.qvel[vadr:vadr + 6] = 0.0
+        mujoco.mj_forward(self.mj_model, self.mj_data)
 
     def reset_object(self):
         """Re-randomize ONLY the table height + manipulable objects, leaving the
@@ -766,6 +802,26 @@ class DefaultEnv:
             return lo
         return float(np.random.uniform(lo, hi))
 
+    @classmethod
+    def _sample_axis(cls, spec):
+        """Sample one spawn axis from a randomization spec.
+
+        Two forms:
+          [lo, hi]                                    -> plain uniform (legacy).
+          {"bimodal": [[lo0,hi0], [lo1,hi1], ...],    -> pick a band by weight,
+           "weights": [w0, w1, ...]}                     then uniform within it.
+        The bimodal form lets one scene mix distinct spawn regimes (e.g. a
+        walk-to-target band and a base-static band) at a chosen ratio.
+        """
+        if isinstance(spec, dict) and "bimodal" in spec:
+            bands = spec["bimodal"]
+            weights = spec.get("weights") or [1.0] * len(bands)
+            w = np.asarray(weights, dtype=float)
+            w = w / w.sum()
+            band = bands[int(np.random.choice(len(bands), p=w))]
+            return cls._uniform(band)
+        return cls._uniform(spec)
+
     def _randomize_robot_pose(self):
         """Randomize the robot spawn xy after reset. Yaw is always 0.
 
@@ -778,8 +834,8 @@ class DefaultEnv:
         if not self.use_floating_root_link:
             return
         spec = self._random_spec.get("robot") or self._DEFAULT_RANDOMIZATION["robot"]
-        self.mj_data.qpos[0] += self._uniform(spec.get("x", [0.0, 0.0]))
-        self.mj_data.qpos[1] += self._uniform(spec.get("y", [0.0, 0.0]))
+        self.mj_data.qpos[0] += self._sample_axis(spec.get("x", [0.0, 0.0]))
+        self.mj_data.qpos[1] += self._sample_axis(spec.get("y", [0.0, 0.0]))
 
         mujoco.mj_forward(self.mj_model, self.mj_data)
 
